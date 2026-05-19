@@ -1,0 +1,397 @@
+// Переменные темы (Modern Slate / Emerald / Rose)
+$bg-main: #f8fafc;
+$bg-card: #ffffff;
+$border-color: #e2e8f0;
+$text-main: #0f172a;
+$text-muted: #64748b;
+
+$primary: #2563eb;
+$primary-light: #eff6ff;
+$success: #10b981;
+$success-light: #ecfdf5;
+$danger: #f43f5e;
+$danger-light: #fff1f2;
+
+$font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+$radius: 16px;
+$radius-sm: 8px;
+$shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+$shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: $font-sans;
+  background-color: $bg-main;
+  color: $text-main;
+  padding: 1.5rem;
+  line-height: 1.5;
+
+  @media (max-width: 640px) {
+    padding: 1rem;
+  }
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+// Шапка приложения
+.header {
+  margin-bottom: 2rem;
+
+  h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    color: $text-main;
+  }
+  p {
+    font-size: 0.95rem;
+    color: $text-muted;
+    margin-top: 0.25rem;
+  }
+
+  @media (max-width: 768px) {
+    h1 { font-size: 1.5rem; }
+    p { font-size: 0.875rem; }
+  }
+}
+
+// Зона загрузки файлов
+.upload-box {
+  background: $bg-card;
+  padding: 1.5rem;
+  border-radius: $radius;
+  border: 1px solid $border-color;
+  box-shadow: $shadow;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+
+  @media (max-width: 640px) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .upload-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: $text-main;
+  }
+
+  input[type="file"] {
+    font-size: 0.875rem;
+    color: $text-muted;
+    width: 100%;
+
+    &::file-selector-button {
+      padding: 0.625rem 1.25rem;
+      border-radius: $radius-sm;
+      background-color: $primary-light;
+      color: $primary;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      margin-right: 1rem;
+      transition: all 0.2s;
+
+      &:hover {
+        background-color: darken($primary-light, 2%);
+      }
+    }
+  }
+
+  .stats-badge {
+    background: $bg-main;
+    padding: 0.75rem 1.25rem;
+    border-radius: $radius-sm;
+    font-size: 0.875rem;
+    border: 1px solid $border-color;
+    text-align: center;
+    white-space: nowrap;
+  }
+}
+
+// Сетка Дашборда (Адаптивная: 1 колонка на мобильных, 4 на десктопе)
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 2rem;
+
+  @media (max-width: 1024px) {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+}
+
+// Боковая панель фильтров
+.filters-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.filter-card {
+  background: $bg-card;
+  padding: 1.25rem;
+  border-radius: $radius;
+  border: 1px solid $border-color;
+  box-shadow: $shadow;
+
+  h3 {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: $text-muted;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid $border-color;
+    padding-bottom: 0.5rem;
+  }
+
+  select {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: $radius-sm;
+    border: 1px solid $border-color;
+    background: $bg-main;
+    color: $text-main;
+    font-size: 0.875rem;
+    font-weight: 500;
+    outline: none;
+    cursor: pointer;
+
+    &:focus {
+      border-color: $primary;
+    }
+  }
+}
+
+.filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 0.875rem;
+  padding-right: 0.25rem;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: $border-color;
+    border-radius: 4px;
+  }
+
+  label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 0.375rem 0.5rem;
+    border-radius: $radius-sm;
+    transition: background 0.15s;
+    font-weight: 500;
+
+    &:hover {
+      background: $bg-main;
+    }
+
+    input[type="checkbox"] {
+      margin-right: 0.75rem;
+      width: 1rem;
+      height: 1rem;
+      border-radius: 4px;
+      border: 1px solid $border-color;
+      cursor: pointer;
+    }
+  }
+
+  &.grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+}
+
+// Главная секция с графиком и таблицей
+.main-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+// Карточка суммарного P&L
+.pnl-summary {
+  background: $bg-card;
+  padding: 1.75rem;
+  border-radius: $radius;
+  border: 1px solid $border-color;
+  box-shadow: $shadow;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  h2 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: $text-main;
+  }
+  p {
+    font-size: 0.815rem;
+    color: $text-muted;
+    margin-top: 0.125rem;
+  }
+
+  .pnl-value {
+    font-size: 2.25rem;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+
+    &.pos { color: $success; }
+    &.neg { color: $danger; }
+  }
+
+  @media (max-width: 640px) {
+    padding: 1.25rem;
+    h2 { font-size: 0.95rem; }
+    .pnl-value { font-size: 1.75rem; }
+  }
+}
+
+// Контейнер под график
+.chart-container {
+  background: $bg-card;
+  padding: 1.5rem;
+  border-radius: $radius;
+  border: 1px solid $border-color;
+  box-shadow: $shadow;
+  height: 350px;
+
+  @media (max-width: 640px) {
+    height: 260px;
+    padding: 1rem 0.5rem 0.5rem 0.5rem;
+  }
+}
+
+// Премиальная адаптивная таблица (Mobile-first адаптивность)
+.table-wrapper {
+  background: $bg-card;
+  border-radius: $radius;
+  border: 1px solid $border-color;
+  box-shadow: $shadow;
+  overflow: hidden;
+
+  // На десктопах показываем классическую красивую таблицу
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 0.9rem;
+  }
+
+  th {
+    background: $bg-main;
+    padding: 1rem 1.25rem;
+    color: $text-muted;
+    font-weight: 700;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid $border-color;
+  }
+
+  td {
+    padding: 1rem 1.25rem;
+    border-top: 1px solid $border-color;
+    vertical-align: middle;
+  }
+
+  // Стили для ячеек таблицы
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .text-right { text-align: right; }
+  .text-center { text-align: center; }
+  .text-muted { color: $text-muted; }
+  .font-bold { font-weight: 600; color: $text-main; }
+  .text-pos { color: $success; }
+  .text-neg { color: $danger; }
+
+  // 📱 Продвинутая адаптивность: превращаем строки в "карточки" на маленьких экранах!
+  @media (max-width: 768px) {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+
+    table, thead, tbody, th, td, tr {
+      display: block;
+    }
+
+    thead {
+      display: none; // Скрываем заголовки таблицы на телефонах
+    }
+
+    tr {
+      background: $bg-card;
+      border: 1px solid $border-color;
+      border-radius: $radius;
+      margin-bottom: 1rem;
+      padding: 1rem;
+      box-shadow: $shadow;
+    }
+
+    td {
+      border: none;
+      padding: 0.375rem 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      text-align: right;
+
+      // Генерируем псевдо-заголовки слева для каждой строки-карточки
+      &::before {
+        content: attr(data-label);
+        float: left;
+        font-weight: 700;
+        font-size: 0.75rem;
+        color: $text-muted;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+    }
+
+    .text-right { text-align: right; }
+  }
+}
+
+// Красивые бейджи статуса
+.badge {
+  padding: 0.315rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.675rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  display: inline-flex;
+  align-items: center;
+
+  &.active {
+    background-color: $success-light;
+    color: darken($success, 10%);
+  }
+  &.closed {
+    background-color: $bg-main;
+    color: $text-muted;
+    border: 1px solid $border-color;
+  }
+}

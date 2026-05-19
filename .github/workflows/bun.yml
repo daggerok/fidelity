@@ -1,0 +1,19 @@
+name: bun
+on:
+  workflow_call:
+    outputs:
+      BUN_VERSION:
+        description: "installed bun version"
+        value: ${{ jobs.setup.outputs.version }}
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - id: set-version
+        run: echo "version=$(bun --version)" >> $GITHUB_OUTPUT
