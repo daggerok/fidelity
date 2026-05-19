@@ -39,6 +39,6 @@ jobs:
             ${{ runner.os }}-bun-
       - run: bunx npm-check-updates -u
       - run: bun install
-      - run: npm run build
-      - run: npm run clean
-      - run: npm run build-github-pages
+      - run: bun run build
+      - run: bun run clean
+      - run: bun run build-github-pages

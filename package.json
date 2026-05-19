@@ -37,6 +37,7 @@
     "@parcel/transformer-sass": "2.16.4",
     "@tailwindcss/postcss": "4.3.0",
     "@types/node": "25.6.0",
+    "@types/papaparse": "5.5.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "jest": "30.3.0",

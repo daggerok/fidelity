@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import React, { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
-import { Upload, Filter, TrendingUp, DollarSign, BarChart3, X, Menu, Sun, Moon, FileText } from 'lucide-react';
+import { Upload, Filter, TrendingUp, DollarSign, BarChart3, X, Menu, Sun, Moon, FileText, ChevronDown, ChevronUp, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import Papa from 'papaparse';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -28,6 +28,8 @@ export interface PositionState {
     averageBuyPrice: number;
     realizedPnL: number;
     isClosed: boolean;
+    unrealizedPnL?: number;
+    currentPrice?: number;
 }
 
 export interface PortfolioAggregate {
@@ -161,10 +163,13 @@ function App() {
     const [fileIndices, setFileIndices] = useState<OptimizedFileIndex[]>([]);
     const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
     const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
-    const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'CLOSED'>('ALL');
+    const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'CLOSED'>('ACTIVE');
     const [isFilterOpen, setIsFilterOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+    const [isFilesExpanded, setIsFilesExpanded] = useState(false);
+    const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
     const handleMultipleFilesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files) return;
@@ -184,6 +189,39 @@ function App() {
         setIsLoading(false);
     };
 
+    const handleSort = (key: string) => {
+        setSortConfig(current => {
+            if (current?.key === key) {
+                // Toggle direction
+                return {
+                    key,
+                    direction: current.direction === 'asc' ? 'desc' : 'asc'
+                };
+            }
+            // New column, default to descending for numeric columns
+            return {
+                key,
+                direction: ['totalShares', 'averageBuyPrice', 'realizedPnL', 'unrealizedPnL'].includes(key) ? 'desc' : 'asc'
+            };
+        });
+    };
+
+    const handlePriceUpdate = (ticker: string, price: string) => {
+        const numPrice = parseFloat(price);
+        if (!isNaN(numPrice) && numPrice > 0) {
+            setCurrentPrices(prev => ({
+                ...prev,
+                [ticker]: numPrice
+            }));
+        } else {
+            setCurrentPrices(prev => {
+                const newPrices = { ...prev };
+                delete newPrices[ticker];
+                return newPrices;
+            });
+        }
+    };
+
     const portfolio = useMemo(() => reducePortfolioOptimized(fileIndices), [fileIndices]);
 
     const uniqueAccounts = useMemo(() => {
@@ -201,7 +239,21 @@ function App() {
     }, [fileIndices]);
 
     const filteredPositions = useMemo(() => {
-        return Object.values(portfolio.positions).filter(pos => {
+        let positions = Object.values(portfolio.positions).map(pos => {
+            const enrichedPos = { ...pos };
+
+            // Calculate unrealized P&L for active positions
+            if (!pos.isClosed && pos.totalShares > 0) {
+                const currentPrice = currentPrices[pos.ticker];
+                if (currentPrice) {
+                    enrichedPos.currentPrice = currentPrice;
+                    const currentValue = pos.totalShares * currentPrice;
+                    enrichedPos.unrealizedPnL = currentValue - pos.totalInvested;
+                }
+            }
+
+            return enrichedPos;
+        }).filter(pos => {
             const matchesAccount = selectedAccounts.length === 0 || selectedAccounts.includes(pos.account);
             const matchesTicker = selectedTickers.length === 0 || selectedTickers.includes(pos.ticker);
             const matchesStatus =
@@ -210,7 +262,36 @@ function App() {
                 (statusFilter === 'CLOSED' && pos.isClosed);
             return matchesAccount && matchesTicker && matchesStatus;
         });
-    }, [portfolio, selectedAccounts, selectedTickers, statusFilter]);
+
+        // Apply sorting
+        if (sortConfig) {
+            positions.sort((a, b) => {
+                let aValue: any = a[sortConfig.key as keyof PositionState];
+                let bValue: any = b[sortConfig.key as keyof PositionState];
+
+                // Handle special cases
+                if (sortConfig.key === 'unrealizedPnL') {
+                    aValue = a.unrealizedPnL ?? 0;
+                    bValue = b.unrealizedPnL ?? 0;
+                }
+
+                if (typeof aValue === 'string') {
+                    aValue = aValue.toLowerCase();
+                    bValue = bValue.toLowerCase();
+                }
+
+                if (aValue < bValue) {
+                    return sortConfig.direction === 'asc' ? -1 : 1;
+                }
+                if (aValue > bValue) {
+                    return sortConfig.direction === 'asc' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+
+        return positions;
+    }, [portfolio, selectedAccounts, selectedTickers, statusFilter, currentPrices, sortConfig]);
 
     const totalFilteredPnL = useMemo(() => {
         return filteredPositions.reduce((sum, pos) => sum + pos.realizedPnL, 0);
@@ -332,29 +413,44 @@ function App() {
 
                 {/* Uploaded Files Section */}
                 {fileIndices.length > 0 && (
-                    <div className={isDark ? "bg-gradient-to-br from-slate-900/90 to-slate-800/90 backdrop-blur-sm border border-white/10 rounded-2xl p-6 mb-6 shadow-xl" : "bg-white border border-gray-300 rounded-2xl p-6 mb-6 shadow-lg"}>
-                        <div className="flex items-center gap-2 mb-4">
-                            <FileText className={isDark ? "w-5 h-5 text-blue-400" : "w-5 h-5 text-blue-600"} />
-                            <h3 className={isDark ? "text-white font-semibold text-lg" : "text-gray-900 font-semibold text-lg"}>Uploaded Files</h3>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {fileIndices.map((file, idx) => (
-                                <div
-                                    key={idx}
-                                    className={isDark ? "bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition-colors" : "bg-gray-50 border border-gray-200 rounded-lg p-3 hover:bg-gray-100 transition-colors"}
-                                >
-                                    <div className={isDark ? "text-gray-300 text-sm font-mono truncate" : "text-gray-700 text-sm font-mono truncate"} title={file.fileName}>
-                                        {file.fileName}
-                                    </div>
-                                    <div className={isDark ? "text-blue-400 text-xs mt-1" : "text-blue-600 text-xs mt-1"}>
-                                        Account: #{file.accountPrefix.replace('History_for_Account_', '')}
-                                    </div>
-                                    <div className={isDark ? "text-gray-500 text-xs mt-1" : "text-gray-500 text-xs mt-1"}>
-                                        {file.earliestDate.toLocaleDateString()} - {file.latestDate.toLocaleDateString()}
-                                    </div>
+                    <div className={isDark ? "bg-gradient-to-br from-slate-900/90 to-slate-800/90 backdrop-blur-sm border border-white/10 rounded-2xl mb-6 shadow-xl overflow-hidden" : "bg-white border border-gray-300 rounded-2xl mb-6 shadow-lg overflow-hidden"}>
+                        <button
+                            onClick={() => setIsFilesExpanded(!isFilesExpanded)}
+                            className={isDark ? "w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors" : "w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"}
+                        >
+                            <div className="flex items-center gap-2">
+                                <FileText className={isDark ? "w-5 h-5 text-blue-400" : "w-5 h-5 text-blue-600"} />
+                                <h3 className={isDark ? "text-white font-semibold text-lg" : "text-gray-900 font-semibold text-lg"}>Uploaded Files</h3>
+                                <span className={isDark ? "text-gray-400 text-sm" : "text-gray-600 text-sm"}>({fileIndices.length})</span>
+                            </div>
+                            {isFilesExpanded ? (
+                                <ChevronUp className={isDark ? "w-5 h-5 text-gray-400" : "w-5 h-5 text-gray-600"} />
+                            ) : (
+                                <ChevronDown className={isDark ? "w-5 h-5 text-gray-400" : "w-5 h-5 text-gray-600"} />
+                            )}
+                        </button>
+                        {isFilesExpanded && (
+                            <div className="p-6 pt-2">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {fileIndices.map((file, idx) => (
+                                        <div
+                                            key={idx}
+                                            className={isDark ? "bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition-colors" : "bg-gray-50 border border-gray-200 rounded-lg p-3 hover:bg-gray-100 transition-colors"}
+                                        >
+                                            <div className={isDark ? "text-gray-300 text-sm font-mono truncate" : "text-gray-700 text-sm font-mono truncate"} title={file.fileName}>
+                                                {file.fileName}
+                                            </div>
+                                            <div className={isDark ? "text-blue-400 text-xs mt-1" : "text-blue-600 text-xs mt-1"}>
+                                                Account: #{file.accountPrefix.replace('History_for_Account_', '')}
+                                            </div>
+                                            <div className={isDark ? "text-gray-500 text-xs mt-1" : "text-gray-500 text-xs mt-1"}>
+                                                {file.earliestDate.toLocaleDateString()} - {file.latestDate.toLocaleDateString()}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -535,23 +631,86 @@ function App() {
                                     <table className="w-full">
                                         <thead className={isDark ? "bg-black/30" : "bg-gray-100"}>
                                         <tr>
-                                            <th className={isDark ? "text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider" : "text-left px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider"}>
-                                                Ticker
+                                            <th
+                                                onClick={() => handleSort('ticker')}
+                                                className={isDark ? "text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-white/5 transition-colors" : "text-left px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-200 transition-colors"}
+                                            >
+                                                <div className="flex items-center gap-1">
+                                                    Ticker
+                                                    {sortConfig?.key === 'ticker' ? (
+                                                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                                                    ) : (
+                                                        <ArrowUpDown className="w-3 h-3 opacity-30" />
+                                                    )}
+                                                </div>
                                             </th>
-                                            <th className={isDark ? "text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider" : "text-left px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider"}>
-                                                Account
+                                            <th
+                                                onClick={() => handleSort('account')}
+                                                className={isDark ? "text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-white/5 transition-colors" : "text-left px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-200 transition-colors"}
+                                            >
+                                                <div className="flex items-center gap-1">
+                                                    Account
+                                                    {sortConfig?.key === 'account' ? (
+                                                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                                                    ) : (
+                                                        <ArrowUpDown className="w-3 h-3 opacity-30" />
+                                                    )}
+                                                </div>
                                             </th>
-                                            <th className={isDark ? "text-right px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider" : "text-right px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider"}>
-                                                Shares
+                                            <th
+                                                onClick={() => handleSort('totalShares')}
+                                                className={isDark ? "text-right px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-white/5 transition-colors" : "text-right px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-200 transition-colors"}
+                                            >
+                                                <div className="flex items-center justify-end gap-1">
+                                                    Shares
+                                                    {sortConfig?.key === 'totalShares' ? (
+                                                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                                                    ) : (
+                                                        <ArrowUpDown className="w-3 h-3 opacity-30" />
+                                                    )}
+                                                </div>
                                             </th>
-                                            <th className={isDark ? "text-right px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden sm:table-cell" : "text-right px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider hidden sm:table-cell"}>
-                                                Avg Buy Price
+                                            <th
+                                                onClick={() => handleSort('averageBuyPrice')}
+                                                className={isDark ? "text-right px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden sm:table-cell cursor-pointer hover:bg-white/5 transition-colors" : "text-right px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider hidden sm:table-cell cursor-pointer hover:bg-gray-200 transition-colors"}
+                                            >
+                                                <div className="flex items-center justify-end gap-1">
+                                                    Avg Buy
+                                                    {sortConfig?.key === 'averageBuyPrice' ? (
+                                                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                                                    ) : (
+                                                        <ArrowUpDown className="w-3 h-3 opacity-30" />
+                                                    )}
+                                                </div>
                                             </th>
                                             <th className={isDark ? "text-center px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell" : "text-center px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider hidden md:table-cell"}>
                                                 Status
                                             </th>
-                                            <th className={isDark ? "text-right px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider" : "text-right px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider"}>
-                                                P&L
+                                            <th
+                                                onClick={() => handleSort('unrealizedPnL')}
+                                                className={isDark ? "text-right px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell cursor-pointer hover:bg-white/5 transition-colors" : "text-right px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider hidden lg:table-cell cursor-pointer hover:bg-gray-200 transition-colors"}
+                                            >
+                                                <div className="flex items-center justify-end gap-1">
+                                                    Unrealized
+                                                    {sortConfig?.key === 'unrealizedPnL' ? (
+                                                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                                                    ) : (
+                                                        <ArrowUpDown className="w-3 h-3 opacity-30" />
+                                                    )}
+                                                </div>
+                                            </th>
+                                            <th
+                                                onClick={() => handleSort('realizedPnL')}
+                                                className={isDark ? "text-right px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-white/5 transition-colors" : "text-right px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-200 transition-colors"}
+                                            >
+                                                <div className="flex items-center justify-end gap-1">
+                                                    Realized
+                                                    {sortConfig?.key === 'realizedPnL' ? (
+                                                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                                                    ) : (
+                                                        <ArrowUpDown className="w-3 h-3 opacity-30" />
+                                                    )}
+                                                </div>
                                             </th>
                                         </tr>
                                         </thead>
@@ -563,6 +722,15 @@ function App() {
                                             >
                                                 <td className="px-6 py-4">
                                                     <div className={isDark ? "font-bold text-white text-lg" : "font-bold text-gray-900 text-lg"}>{pos.ticker}</div>
+                                                    {!pos.isClosed && pos.totalShares > 0 && !currentPrices[pos.ticker] && (
+                                                        <input
+                                                            type="number"
+                                                            step="0.01"
+                                                            placeholder="Current $"
+                                                            onChange={(e) => handlePriceUpdate(pos.ticker, e.target.value)}
+                                                            className={isDark ? "mt-1 w-24 px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded focus:ring-1 focus:ring-blue-500 text-white" : "mt-1 w-24 px-2 py-1 text-xs bg-white border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 text-gray-900"}
+                                                        />
+                                                    )}
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <div className={isDark ? "text-gray-400 font-mono text-sm" : "text-gray-600 font-mono text-sm"}>#{pos.account}</div>
@@ -572,6 +740,11 @@ function App() {
                                                 </td>
                                                 <td className="px-6 py-4 text-right hidden sm:table-cell">
                                                     <div className={isDark ? "text-gray-300 font-mono" : "text-gray-700 font-mono"}>${pos.averageBuyPrice.toFixed(2)}</div>
+                                                    {!pos.isClosed && pos.currentPrice && (
+                                                        <div className={isDark ? "text-blue-400 text-xs mt-1" : "text-blue-600 text-xs mt-1"}>
+                                                            Now: ${pos.currentPrice.toFixed(2)}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="px-6 py-4 text-center hidden md:table-cell">
                                                         <span
@@ -583,6 +756,21 @@ function App() {
                                                         >
                                                             {pos.isClosed ? 'CLOSED' : 'ACTIVE'}
                                                         </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-right hidden lg:table-cell">
+                                                    {!pos.isClosed && pos.unrealizedPnL !== undefined ? (
+                                                        <div
+                                                            className={`font-bold text-lg font-mono ${
+                                                                pos.unrealizedPnL >= 0 ? (isDark ? 'text-green-400' : 'text-green-600') : (isDark ? 'text-red-400' : 'text-red-600')
+                                                            }`}
+                                                        >
+                                                            ${pos.unrealizedPnL.toFixed(2)}
+                                                        </div>
+                                                    ) : (
+                                                        <div className={isDark ? "text-gray-500 text-sm" : "text-gray-400 text-sm"}>
+                                                            {pos.isClosed ? '—' : 'Set price'}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
                                                     <div
