@@ -1,8 +1,8 @@
-import { StrictMode, useRef } from "react";
+import { StrictMode, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import React, { useState, useMemo, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
-import { Upload, Filter, TrendingUp, DollarSign, BarChart3, X, Menu, Sun, Moon, FileText, ChevronDown, ChevronUp, ArrowUpDown, ArrowUp, ArrowDown, FilterX } from 'lucide-react';
+import { Upload, Filter, TrendingUp, DollarSign, BarChart3, X, Menu, Sun, Moon, FileText, ChevronDown, ChevronUp, ArrowUpDown, ArrowUp, ArrowDown, FilterX, RotateCcw, Edit3, Check } from 'lucide-react';
 import Papa from 'papaparse';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -39,9 +39,11 @@ export interface PortfolioAggregate {
 
 export function reducePortfolioOptimized(fileIndices: OptimizedFileIndex[]): PortfolioAggregate {
     const aggregate: PortfolioAggregate = { positions: {}, globalPnL: 0 };
+
     if (fileIndices.length === 0) return aggregate;
 
     const groups: Record<string, OptimizedFileIndex[]> = {};
+
     for (const fileIndex of fileIndices) {
         if (!groups[fileIndex.accountPrefix]) groups[fileIndex.accountPrefix] = [];
         groups[fileIndex.accountPrefix].push(fileIndex);
@@ -50,7 +52,6 @@ export function reducePortfolioOptimized(fileIndices: OptimizedFileIndex[]): Por
     for (const accountPrefix in groups) {
         const filesInGroup = groups[accountPrefix];
         filesInGroup.sort((a, b) => a.earliestDate.getTime() - b.earliestDate.getTime());
-
         const cleanAccountName = accountPrefix.replace('History_for_Account_', '');
 
         for (const file of filesInGroup) {
@@ -59,9 +60,9 @@ export function reducePortfolioOptimized(fileIndices: OptimizedFileIndex[]): Por
             for (let i = rows.length - 1; i >= 0; i--) {
                 const row = rows[i];
                 const actionStr = row['Action'] || '';
-
                 const isBuy = actionStr.includes('YOU BOUGHT');
                 const isSell = actionStr.includes('YOU SOLD');
+
                 if (!isBuy && !isSell) continue;
 
                 const ticker = (row['Symbol'] || '').toUpperCase().trim();
@@ -84,9 +85,8 @@ export function reducePortfolioOptimized(fileIndices: OptimizedFileIndex[]): Por
                 const pos = aggregate.positions[key];
                 const amountRaw = row['Amount ($)'] || row['Amount'] || '0';
                 const quantityRaw = row['Quantity'] || '0';
-
-                const amount = parseFloat(amountRaw.toString().replace(/[\$,]/g, '')) || 0;
-                const shares = Math.abs(parseFloat(quantityRaw.toString().replace(/[\$,]/g, '')) || 0);
+                const amount = parseFloat(amountRaw.toString().replace(/[$,]/g, '')) || 0;
+                const shares = Math.abs(parseFloat(quantityRaw.toString().replace(/[$,]/g, '')) || 0);
                 const absAmount = Math.abs(amount);
 
                 if (isBuy) {
@@ -99,13 +99,10 @@ export function reducePortfolioOptimized(fileIndices: OptimizedFileIndex[]): Por
                     if (pos.totalShares > 0) {
                         const costOfSharesSold = pos.averageBuyPrice * shares;
                         const pnl = absAmount - costOfSharesSold;
-
                         pos.realizedPnL += pnl;
                         aggregate.globalPnL += pnl;
-
                         pos.totalShares -= shares;
                         pos.totalInvested -= costOfSharesSold;
-
                         if (pos.totalShares < 0.00001) {
                             pos.totalShares = 0;
                             pos.totalInvested = 0;
@@ -158,17 +155,128 @@ export function parseFidelityCSVOptimized(file: File): Promise<OptimizedFileInde
     });
 }
 
+// ─── Alias Generation Utility ─────────────────────────────────────────────────
+
+function generateAccountAliases(fileIndices: OptimizedFileIndex[]): Record<string, string> {
+    if (fileIndices.length === 0) return {};
+
+    // Extract all filenames
+    const fileNames = fileIndices.map(f => f.fileName);
+
+    // Common patterns to try removing
+    const commonPatterns = [
+        'History_for_Account_',
+        '.csv',
+        '_',
+        '-',
+        ' ',
+    ];
+
+    // Try to find common prefix
+    let commonPrefix = '';
+    if (fileNames.length > 1) {
+        const firstName = fileNames[0];
+        let prefixLen = 0;
+        for (let i = 0; i < firstName.length; i++) {
+            const char = firstName[i];
+            let allMatch = true;
+            for (const name of fileNames) {
+                if (name[i] !== char) {
+                    allMatch = false;
+                    break;
+                }
+            }
+            if (allMatch) {
+                prefixLen++;
+            } else {
+                break;
+            }
+        }
+        commonPrefix = firstName.substring(0, prefixLen);
+    }
+
+    // Find common suffix
+    let commonSuffix = '';
+    if (fileNames.length > 1) {
+        const firstName = fileNames[0];
+        let suffixLen = 0;
+        for (let i = firstName.length - 1; i >= 0; i--) {
+            const char = firstName[i];
+            let allMatch = true;
+            for (const name of fileNames) {
+                const idx = name.length - (firstName.length - i);
+                if (idx < 0 || name[idx] !== char) {
+                    allMatch = false;
+                    break;
+                }
+            }
+            if (allMatch) {
+                suffixLen++;
+            } else {
+                break;
+            }
+        }
+        commonSuffix = firstName.substring(firstName.length - suffixLen);
+    }
+
+    // Find unique identifiers (account numbers or distinctive parts)
+    const aliases: Record<string, string> = {};
+    const uniqueAccounts = [...new Set(fileIndices.map(f => f.accountPrefix.replace('History_for_Account_', '')))];
+
+    for (const account of uniqueAccounts) {
+        // Check if this account appears in multiple files - if so, it's probably a real account ID
+        const filesForAccount = fileIndices.filter(f =>
+            f.accountPrefix.replace('History_for_Account_', '') === account
+        );
+
+        if (filesForAccount.length === 1) {
+            // Single file for this account - try to generate meaningful alias from filename
+            const fileName = filesForAccount[0].fileName;
+
+            // Remove common patterns from filename
+            let cleaned = fileName;
+
+            // Remove common prefix if it's long enough
+            if (commonPrefix.length > 5) {
+                cleaned = cleaned.substring(commonPrefix.length);
+            }
+
+            // Remove common suffix if it's long enough
+            if (commonSuffix.length > 3) {
+                cleaned = cleaned.substring(0, cleaned.length - commonSuffix.length);
+            }
+
+            // Remove common patterns
+            cleaned = cleaned
+                .replace(/History_for_Account_/gi, '')
+                .replace(/\.csv$/i, '')
+                .replace(/[-_ ]+/g, ' ')
+                .trim();
+
+            // If the cleaned name is meaningful (not just numbers or too short), use it
+            if (cleaned.length > 2 && cleaned.length < 30) {
+                aliases[account] = cleaned;
+            } else if (account.length > 0 && account.length < 20) {
+                aliases[account] = account;
+            }
+        } else {
+            // Multiple files for this account - use account identifier
+            aliases[account] = account;
+        }
+    }
+
+    return aliases;
+}
+
 // ─── Column Filter Types ──────────────────────────────────────────────────────
 
 export type StringOperator = 'contains' | 'not_contains' | 'equals' | 'not_equals' | 'starts_with' | 'ends_with';
 export type NumericOperator = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte';
 export type ColumnType = 'string' | 'number';
-
 export interface ColumnFilter {
     operator: StringOperator | NumericOperator;
     value: string;
 }
-
 export type ColumnFilters = Record<string, ColumnFilter>;
 
 const STRING_OPERATORS: { value: StringOperator; label: string; symbol: string }[] = [
@@ -193,6 +301,7 @@ function matchesStringFilter(cellValue: string, filter: ColumnFilter): boolean {
     const op = filter.operator as StringOperator;
     const val = filter.value.toLowerCase();
     const cell = cellValue.toLowerCase();
+
     switch (op) {
         case 'contains':     return cell.includes(val);
         case 'not_contains': return !cell.includes(val);
@@ -208,6 +317,7 @@ function matchesNumericFilter(cellValue: number, filter: ColumnFilter): boolean 
     const op = filter.operator as NumericOperator;
     const val = parseFloat(filter.value);
     if (isNaN(val)) return true;
+
     switch (op) {
         case 'eq':  return cellValue === val;
         case 'neq': return cellValue !== val;
@@ -236,7 +346,6 @@ function ColumnFilterInput({ columnKey, columnType, filter, onChange, isDark, al
     const defaultOp = columnType === 'number' ? 'eq' : 'contains';
     const currentOp = filter?.operator ?? defaultOp;
     const currentVal = filter?.value ?? '';
-
     const inputRef = useRef<HTMLInputElement>(null);
 
     const handleOperatorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -283,7 +392,6 @@ function ColumnFilterInput({ columnKey, columnType, filter, onChange, isDark, al
     return (
         <div className={`flex items-center w-full ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'}`}>
             <div className={`flex items-center min-w-0 max-w-full ${activeRingClass}`} style={{ minWidth: 0 }}>
-                {/* Operator dropdown — shows only symbol to save space */}
                 <select
                     value={currentOp}
                     onChange={handleOperatorChange}
@@ -296,7 +404,6 @@ function ColumnFilterInput({ columnKey, columnType, filter, onChange, isDark, al
                         </option>
                     ))}
                 </select>
-                {/* Value input */}
                 <input
                     ref={inputRef}
                     type={columnType === 'number' ? 'number' : 'text'}
@@ -306,7 +413,6 @@ function ColumnFilterInput({ columnKey, columnType, filter, onChange, isDark, al
                     className={inputClass}
                     style={{ width: '6rem' }}
                 />
-                {/* Clear button */}
                 <button
                     onClick={handleClear}
                     className={clearClass}
@@ -317,6 +423,179 @@ function ColumnFilterInput({ columnKey, columnType, filter, onChange, isDark, al
                 </button>
             </div>
         </div>
+    );
+}
+
+// ─── Alias Edit Modal Component ───────────────────────────────────────────────
+
+interface AliasEditModalProps {
+    account: string;
+    currentAlias: string;
+    suggestedAlias: string;
+    onSave: (alias: string) => void;
+    onClose: () => void;
+    isDark: boolean;
+}
+
+function AliasEditModal({ account, currentAlias, suggestedAlias, onSave, onClose, isDark }: AliasEditModalProps) {
+    const [alias, setAlias] = useState(currentAlias || suggestedAlias);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    React.useEffect(() => {
+        setAlias(currentAlias || suggestedAlias);
+        setTimeout(() => inputRef.current?.select(), 100);
+    }, [currentAlias, suggestedAlias]);
+
+    const handleSave = () => {
+        const trimmed = alias.trim();
+        if (trimmed) {
+            onSave(trimmed);
+        }
+        onClose();
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            handleSave();
+        } else if (e.key === 'Escape') {
+            onClose();
+        }
+    };
+
+    return (
+        <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
+            onClick={onClose}
+        >
+            <div
+                className={cn(
+                    "rounded-2xl p-6 w-full max-w-md shadow-2xl",
+                    isDark ? "bg-slate-900 border border-white/10" : "bg-white border border-gray-300"
+                )}
+                onClick={e => e.stopPropagation()}
+            >
+                <div className="flex items-center gap-3 mb-4">
+                    <div className={cn(
+                        "p-2 rounded-lg",
+                        isDark ? "bg-blue-500/20" : "bg-blue-100"
+                    )}>
+                        <Edit3 className={cn("w-5 h-5", isDark ? "text-blue-400" : "text-blue-600")} />
+                    </div>
+                    <div>
+                        <h3 className={cn("text-lg font-semibold", isDark ? "text-white" : "text-gray-900")}>
+                            Edit Account Alias
+                        </h3>
+                        <p className={cn("text-sm", isDark ? "text-gray-400" : "text-gray-500")}>
+                            Account: <span className="font-mono">{account}</span>
+                        </p>
+                    </div>
+                </div>
+
+                <div className="mb-4">
+                    <label className={cn("block text-sm font-medium mb-2", isDark ? "text-gray-300" : "text-gray-700")}>
+                        Alias Name
+                    </label>
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        value={alias}
+                        onChange={e => setAlias(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Enter alias..."
+                        className={cn(
+                            "w-full px-4 py-3 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all",
+                            isDark
+                                ? "bg-slate-800 border border-white/10 text-white placeholder-gray-500"
+                                : "bg-gray-100 border border-gray-300 text-gray-900 placeholder-gray-400"
+                        )}
+                    />
+                    {suggestedAlias && suggestedAlias !== currentAlias && (
+                        <p className={cn("text-xs mt-2", isDark ? "text-gray-400" : "text-gray-500")}>
+                            Suggested: <button
+                            type="button"
+                            onClick={() => setAlias(suggestedAlias)}
+                            className={cn(
+                                "underline hover:no-underline",
+                                isDark ? "text-blue-400" : "text-blue-600"
+                            )}
+                        >
+                            {suggestedAlias}
+                        </button>
+                        </p>
+                    )}
+                </div>
+
+                <div className="flex gap-3">
+                    <button
+                        onClick={onClose}
+                        className={cn(
+                            "flex-1 px-4 py-2 rounded-xl font-medium transition-all",
+                            isDark
+                                ? "bg-white/10 text-gray-300 hover:bg-white/20"
+                                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        )}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSave}
+                        className="flex-1 px-4 py-2 rounded-xl font-medium bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:opacity-90 transition-all flex items-center justify-center gap-2"
+                    >
+                        <Check className="w-4 h-4" />
+                        Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ─── Account List Item with Edit ──────────────────────────────────────────────
+
+interface AccountListItemProps {
+    account: string;
+    alias: string;
+    suggestedAlias: string;
+    onEdit: () => void;
+    isSelected: boolean;
+    onToggle: () => void;
+    isDark: boolean;
+}
+
+function AccountListItem({ account, alias, suggestedAlias, onEdit, isSelected, onToggle, isDark }: AccountListItemProps) {
+    const displayName = alias || account;
+
+    return (
+        <label className="flex items-center gap-2 cursor-pointer group py-1">
+            <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={onToggle}
+                className={isDark
+                    ? "w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-2 focus:ring-blue-500"
+                    : "w-4 h-4 rounded border-gray-400 bg-white text-blue-600 focus:ring-2 focus:ring-blue-500"
+                }
+            />
+            <span className={isDark
+                ? "text-gray-300 text-sm group-hover:text-white transition-colors flex-1"
+                : "text-gray-700 text-sm group-hover:text-gray-900 transition-colors flex-1"
+            }>
+                #{displayName}
+            </span>
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit();
+                }}
+                className={cn(
+                    "p-1 rounded hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100",
+                    isDark ? "text-gray-500 hover:text-blue-400" : "text-gray-400 hover:text-blue-600"
+                )}
+                title="Edit alias"
+            >
+                <Edit3 className="w-3.5 h-3.5" />
+            </button>
+        </label>
     );
 }
 
@@ -334,10 +613,67 @@ function App() {
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
     const [columnFilters, setColumnFilters] = useState<ColumnFilters>({});
 
+    // Account aliases state
+    const [accountAliases, setAccountAliases] = useState<Record<string, string>>({});
+    const [editingAccount, setEditingAccount] = useState<string | null>(null);
+    const [suggestedAliases, setSuggestedAliases] = useState<Record<string, string>>({});
+
+    // Compute suggested aliases when files change
+    const computedSuggestedAliases = useMemo(() => {
+        return generateAccountAliases(fileIndices);
+    }, [fileIndices]);
+
+    // Initialize/reset account aliases when files are loaded
+    const initializeAliases = useCallback((files: OptimizedFileIndex[]) => {
+        const newSuggested = generateAccountAliases(files);
+        setSuggestedAliases(newSuggested);
+
+        // Auto-assign suggested aliases for accounts that don't have one yet
+        const newAliases: Record<string, string> = {};
+        const uniqueAccounts = [...new Set(files.map(f => f.accountPrefix.replace('History_for_Account_', '')))];
+
+        for (const account of uniqueAccounts) {
+            // Only auto-assign if all files have similar naming patterns (suggesting meaningful names)
+            const filesForAccount = files.filter(f =>
+                f.accountPrefix.replace('History_for_Account_', '') === account
+            );
+
+            if (filesForAccount.length === 1) {
+                const suggested = newSuggested[account];
+                // Only auto-suggest if the name is different from the account ID
+                if (suggested && suggested !== account) {
+                    newAliases[account] = suggested;
+                }
+            }
+        }
+
+        setAccountAliases(prev => {
+            const updated = { ...prev };
+            for (const [acc, alias] of Object.entries(newAliases)) {
+                if (!updated[acc]) {
+                    updated[acc] = alias;
+                }
+            }
+            return updated;
+        });
+    }, []);
+
+    // Reset function - clears UI state but keeps data
+    const handleReset = useCallback(() => {
+        setSelectedAccounts([]);
+        setSelectedTickers([]);
+        setStatusFilter('ACTIVE');
+        setSortConfig(null);
+        setColumnFilters({});
+        setIsFilterOpen(false);
+    }, []);
+
     const handleMultipleFilesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files) return;
+
         const filesArray = Array.from(e.target.files);
         setIsLoading(true);
+
         const newIndices: OptimizedFileIndex[] = [];
 
         for (const file of filesArray) {
@@ -348,7 +684,10 @@ function App() {
                 console.error(err);
             }
         }
-        setFileIndices(prev => [...prev, ...newIndices]);
+
+        const updatedFiles = [...fileIndices, ...newIndices];
+        setFileIndices(updatedFiles);
+        initializeAliases(updatedFiles);
         setIsLoading(false);
     };
 
@@ -406,10 +745,10 @@ function App() {
                 statusFilter === 'ALL' ||
                 (statusFilter === 'ACTIVE' && !pos.isClosed) ||
                 (statusFilter === 'CLOSED' && pos.isClosed);
+
             return matchesAccount && matchesTicker && matchesStatus;
         });
 
-        // Apply sorting
         if (sortConfig) {
             positions.sort((a, b) => {
                 let aValue: any = a[sortConfig.key as keyof PositionState];
@@ -431,7 +770,6 @@ function App() {
             });
         }
 
-        // Apply column filters
         if (activeFilterCount > 0) {
             positions = positions.filter(pos => {
                 for (const [key, filter] of Object.entries(columnFilters)) {
@@ -505,7 +843,6 @@ function App() {
 
     const isDark = theme === 'dark';
 
-    // Helper: sort icon
     const SortIcon = ({ colKey }: { colKey: string }) => {
         if (sortConfig?.key === colKey) {
             return sortConfig.direction === 'asc'
@@ -522,6 +859,11 @@ function App() {
     const filterRowCell = isDark
         ? "px-3 py-2 bg-slate-900/70 border-b border-white/5"
         : "px-3 py-2 bg-gray-50 border-b border-gray-200";
+
+    // Get display name for account (alias or original)
+    const getAccountDisplayName = (account: string) => {
+        return accountAliases[account] || account;
+    };
 
     return (
         <div className={isDark ? "min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900" : "min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100"}>
@@ -543,6 +885,20 @@ function App() {
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
+                            {/* Refresh Button */}
+                            {fileIndices.length > 0 && (
+                                <button
+                                    onClick={handleReset}
+                                    className={isDark
+                                        ? "bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg transition-all duration-200 flex items-center gap-2"
+                                        : "bg-gray-200 hover:bg-gray-300 text-gray-900 px-3 py-2 rounded-lg transition-all duration-200 flex items-center gap-2"
+                                    }
+                                    title="Reset filters and sorting"
+                                >
+                                    <RotateCcw className="w-5 h-5" />
+                                    <span className="hidden sm:inline">Reset</span>
+                                </button>
+                            )}
                             <button
                                 onClick={() => setTheme(isDark ? 'light' : 'dark')}
                                 className={isDark ? "bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg transition-all duration-200 flex items-center gap-2" : "bg-gray-200 hover:bg-gray-300 text-gray-900 px-3 py-2 rounded-lg transition-all duration-200 flex items-center gap-2"}
@@ -626,7 +982,7 @@ function App() {
                                                 {file.fileName}
                                             </div>
                                             <div className={isDark ? "text-blue-400 text-xs mt-1" : "text-blue-600 text-xs mt-1"}>
-                                                Account: #{file.accountPrefix.replace('History_for_Account_', '')}
+                                                Account: #{getAccountDisplayName(file.accountPrefix.replace('History_for_Account_', ''))}
                                             </div>
                                             <div className={isDark ? "text-gray-500 text-xs mt-1" : "text-gray-500 text-xs mt-1"}>
                                                 {file.earliestDate.toLocaleDateString()} - {file.latestDate.toLocaleDateString()}
@@ -649,24 +1005,22 @@ function App() {
                                     <div className="flex items-center gap-2 mb-4">
                                         <Filter className={isDark ? "w-4 h-4 text-blue-400" : "w-4 h-4 text-blue-600"} />
                                         <h3 className={isDark ? "text-white font-semibold" : "text-gray-900 font-semibold"}>Accounts</h3>
+                                        <span className={isDark ? "text-gray-500 text-xs" : "text-gray-400 text-xs"}>(click ✏️ to edit)</span>
                                     </div>
-                                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                                    <div className="space-y-1 max-h-48 overflow-y-auto">
                                         {uniqueAccounts.map(acc => (
-                                            <label key={acc} className="flex items-center gap-2 cursor-pointer group">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedAccounts.includes(acc)}
-                                                    onChange={() =>
-                                                        setSelectedAccounts(prev =>
-                                                            prev.includes(acc) ? prev.filter(a => a !== acc) : [...prev, acc]
-                                                        )
-                                                    }
-                                                    className={isDark ? "w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-2 focus:ring-blue-500" : "w-4 h-4 rounded border-gray-400 bg-white text-blue-600 focus:ring-2 focus:ring-blue-500"}
-                                                />
-                                                <span className={isDark ? "text-gray-300 text-sm group-hover:text-white transition-colors" : "text-gray-700 text-sm group-hover:text-gray-900 transition-colors"}>
-                                                    #{acc}
-                                                </span>
-                                            </label>
+                                            <AccountListItem
+                                                key={acc}
+                                                account={acc}
+                                                alias={accountAliases[acc] || ''}
+                                                suggestedAlias={computedSuggestedAliases[acc] || ''}
+                                                onEdit={() => setEditingAccount(acc)}
+                                                isSelected={selectedAccounts.includes(acc)}
+                                                onToggle={() => setSelectedAccounts(prev =>
+                                                    prev.includes(acc) ? prev.filter(a => a !== acc) : [...prev, acc]
+                                                )}
+                                                isDark={isDark}
+                                            />
                                         ))}
                                     </div>
                                 </div>
@@ -683,11 +1037,9 @@ function App() {
                                                 <input
                                                     type="checkbox"
                                                     checked={selectedTickers.includes(tick)}
-                                                    onChange={() =>
-                                                        setSelectedTickers(prev =>
-                                                            prev.includes(tick) ? prev.filter(t => t !== tick) : [...prev, tick]
-                                                        )
-                                                    }
+                                                    onChange={() => setSelectedTickers(prev =>
+                                                        prev.includes(tick) ? prev.filter(t => t !== tick) : [...prev, tick]
+                                                    )}
                                                     className={isDark ? "w-4 h-4 rounded border-gray-600 bg-gray-700 text-purple-500 focus:ring-2 focus:ring-purple-500" : "w-4 h-4 rounded border-gray-400 bg-white text-purple-600 focus:ring-2 focus:ring-purple-500"}
                                                 />
                                                 <span className={isDark ? "text-gray-300 text-xs group-hover:text-white transition-colors font-mono" : "text-gray-700 text-xs group-hover:text-gray-900 transition-colors font-mono"}>
@@ -713,7 +1065,6 @@ function App() {
                                         ${totalFilteredPnL.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </div>
                                 </div>
-
                                 <div className={isDark ? "bg-gradient-to-br from-blue-900/30 to-blue-800/30 backdrop-blur-sm border border-blue-500/20 rounded-xl p-5 shadow-xl" : "bg-gradient-to-br from-blue-100 to-blue-200 border border-blue-300 rounded-xl p-5 shadow-lg"}>
                                     <div className="flex items-center justify-between mb-2">
                                         <div className={isDark ? "text-blue-400 text-sm font-medium" : "text-blue-700 text-sm font-medium"}>Active</div>
@@ -723,7 +1074,6 @@ function App() {
                                         {stats.activePositions}
                                     </div>
                                 </div>
-
                                 <div className={isDark ? "bg-gradient-to-br from-purple-900/30 to-purple-800/30 backdrop-blur-sm border border-purple-500/20 rounded-xl p-5 shadow-xl" : "bg-gradient-to-br from-purple-100 to-purple-200 border border-purple-300 rounded-xl p-5 shadow-lg"}>
                                     <div className="flex items-center justify-between mb-2">
                                         <div className={isDark ? "text-purple-400 text-sm font-medium" : "text-purple-700 text-sm font-medium"}>Closed</div>
@@ -733,7 +1083,6 @@ function App() {
                                         {stats.closedPositions}
                                     </div>
                                 </div>
-
                                 <div className={isDark ? "bg-gradient-to-br from-yellow-900/30 to-yellow-800/30 backdrop-blur-sm border border-yellow-500/20 rounded-xl p-5 shadow-xl" : "bg-gradient-to-br from-yellow-100 to-yellow-200 border border-yellow-300 rounded-xl p-5 shadow-lg"}>
                                     <div className="flex items-center justify-between mb-2">
                                         <div className={isDark ? "text-yellow-400 text-sm font-medium" : "text-yellow-700 text-sm font-medium"}>Profitable</div>
@@ -776,14 +1125,12 @@ function App() {
 
                             {/* Table */}
                             <div className={isDark ? "bg-gradient-to-br from-slate-900/90 to-slate-800/90 backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden shadow-xl" : "bg-white border border-gray-300 rounded-2xl overflow-hidden shadow-lg"}>
-                                {/* Table header panel */}
                                 <div className={isDark ? "p-6 border-b border-white/10" : "p-6 border-b border-gray-200"}>
                                     <div className="flex items-center justify-between mb-4">
                                         <div>
                                             <h3 className={isDark ? "text-white text-xl font-semibold" : "text-gray-900 text-xl font-semibold"}>Position Details</h3>
                                             <p className={isDark ? "text-gray-400 text-sm mt-1" : "text-gray-600 text-sm mt-1"}>{filteredPositions.length} positions</p>
                                         </div>
-                                        {/* Clear column filters button */}
                                         {activeFilterCount > 0 && (
                                             <button
                                                 onClick={clearAllColumnFilters}
@@ -796,7 +1143,6 @@ function App() {
                                             </button>
                                         )}
                                     </div>
-                                    {/* Status Tabs */}
                                     <div className="flex gap-2 flex-wrap mt-4">
                                         {(['ACTIVE', 'CLOSED', 'ALL'] as const).map(status => (
                                             <button
@@ -817,41 +1163,30 @@ function App() {
                                         ))}
                                     </div>
                                 </div>
-
                                 <div className="overflow-x-auto">
                                     <table className="w-full">
                                         <thead>
-                                        {/* ── Sort header row ── */}
                                         <tr className={isDark ? "bg-black/30" : "bg-gray-100"}>
-                                            {/* Ticker */}
                                             <th onClick={() => handleSort('ticker')} className={`text-left px-6 py-4 ${thBase}`}>
                                                 <div className="flex items-center gap-1">Ticker <SortIcon colKey="ticker" /></div>
                                             </th>
-                                            {/* Account */}
                                             <th onClick={() => handleSort('account')} className={`text-left px-6 py-4 ${thBase}`}>
                                                 <div className="flex items-center gap-1">Account <SortIcon colKey="account" /></div>
                                             </th>
-                                            {/* Shares */}
                                             <th onClick={() => handleSort('totalShares')} className={`text-right px-6 py-4 ${thBase}`}>
                                                 <div className="flex items-center justify-end gap-1">Shares <SortIcon colKey="totalShares" /></div>
                                             </th>
-                                            {/* Avg Buy */}
                                             <th onClick={() => handleSort('averageBuyPrice')} className={`text-right px-6 py-4 hidden sm:table-cell ${thBase}`}>
                                                 <div className="flex items-center justify-end gap-1">Avg Buy <SortIcon colKey="averageBuyPrice" /></div>
                                             </th>
-                                            {/* Status */}
                                             <th className={isDark ? "text-center px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell" : "text-center px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider hidden md:table-cell"}>
                                                 Status
                                             </th>
-                                            {/* Realized P&L */}
                                             <th onClick={() => handleSort('realizedPnL')} className={`text-right px-6 py-4 ${thBase}`}>
                                                 <div className="flex items-center justify-end gap-1">Realized <SortIcon colKey="realizedPnL" /></div>
                                             </th>
                                         </tr>
-
-                                        {/* ── Column filter row ── */}
                                         <tr>
-                                            {/* Ticker filter */}
                                             <td className={`${filterRowCell} text-left`}>
                                                 <ColumnFilterInput
                                                     columnKey="ticker"
@@ -863,7 +1198,6 @@ function App() {
                                                     placeholder="e.g. AAPL"
                                                 />
                                             </td>
-                                            {/* Account filter */}
                                             <td className={`${filterRowCell} text-left`}>
                                                 <ColumnFilterInput
                                                     columnKey="account"
@@ -875,7 +1209,6 @@ function App() {
                                                     placeholder="account…"
                                                 />
                                             </td>
-                                            {/* Shares filter */}
                                             <td className={`${filterRowCell} text-right`}>
                                                 <ColumnFilterInput
                                                     columnKey="totalShares"
@@ -887,7 +1220,6 @@ function App() {
                                                     placeholder="qty"
                                                 />
                                             </td>
-                                            {/* Avg Buy filter */}
                                             <td className={`${filterRowCell} text-right hidden sm:table-cell`}>
                                                 <ColumnFilterInput
                                                     columnKey="averageBuyPrice"
@@ -899,7 +1231,6 @@ function App() {
                                                     placeholder="price"
                                                 />
                                             </td>
-                                            {/* Status filter */}
                                             <td className={`${filterRowCell} text-center hidden md:table-cell`}>
                                                 <ColumnFilterInput
                                                     columnKey="status"
@@ -911,7 +1242,6 @@ function App() {
                                                     placeholder="active…"
                                                 />
                                             </td>
-                                            {/* Realized P&L filter */}
                                             <td className={`${filterRowCell} text-right`}>
                                                 <ColumnFilterInput
                                                     columnKey="realizedPnL"
@@ -925,7 +1255,6 @@ function App() {
                                             </td>
                                         </tr>
                                         </thead>
-
                                         <tbody className={isDark ? "divide-y divide-white/5" : "divide-y divide-gray-200"}>
                                         {filteredPositions.map(pos => (
                                             <tr
@@ -936,7 +1265,7 @@ function App() {
                                                     <div className={isDark ? "font-bold text-white text-lg" : "font-bold text-gray-900 text-lg"}>{pos.ticker}</div>
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    <div className={isDark ? "text-gray-400 font-mono text-sm" : "text-gray-600 font-mono text-sm"}>#{pos.account}</div>
+                                                    <div className={isDark ? "text-gray-400 font-mono text-sm" : "text-gray-600 font-mono text-sm"}>#{getAccountDisplayName(pos.account)}</div>
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
                                                     <div className={isDark ? "text-white font-mono" : "text-gray-900 font-mono"}>{pos.totalShares.toFixed(4)}</div>
@@ -962,7 +1291,6 @@ function App() {
                                         ))}
                                         </tbody>
                                     </table>
-
                                     {filteredPositions.length === 0 && (
                                         <div className={isDark ? "text-center py-12 text-gray-500" : "text-center py-12 text-gray-600"}>
                                             <FilterX className="w-8 h-8 mx-auto mb-3 opacity-40" />
@@ -1003,6 +1331,23 @@ function App() {
                     </label>
                 )}
             </div>
+
+            {/* Alias Edit Modal */}
+            {editingAccount && (
+                <AliasEditModal
+                    account={editingAccount}
+                    currentAlias={accountAliases[editingAccount] || ''}
+                    suggestedAlias={computedSuggestedAliases[editingAccount] || ''}
+                    onSave={(alias) => {
+                        setAccountAliases(prev => ({
+                            ...prev,
+                            [editingAccount]: alias
+                        }));
+                    }}
+                    onClose={() => setEditingAccount(null)}
+                    isDark={isDark}
+                />
+            )}
         </div>
     );
 }
