@@ -28,8 +28,6 @@ export interface PositionState {
     averageBuyPrice: number;
     realizedPnL: number;
     isClosed: boolean;
-    unrealizedPnL?: number;
-    currentPrice?: number;
 }
 
 export interface PortfolioAggregate {
@@ -160,20 +158,9 @@ export function parseFidelityCSVOptimized(file: File): Promise<OptimizedFileInde
 function generateAccountAliases(fileIndices: OptimizedFileIndex[]): Record<string, string> {
     if (fileIndices.length === 0) return {};
 
-    // Extract all filenames
     const fileNames = fileIndices.map(f => f.fileName);
-
-    // Common patterns to try removing
-    const commonPatterns = [
-        'History_for_Account_',
-        '.csv',
-        '_',
-        '-',
-        ' ',
-    ];
-
-    // Try to find common prefix
     let commonPrefix = '';
+
     if (fileNames.length > 1) {
         const firstName = fileNames[0];
         let prefixLen = 0;
@@ -195,7 +182,6 @@ function generateAccountAliases(fileIndices: OptimizedFileIndex[]): Record<strin
         commonPrefix = firstName.substring(0, prefixLen);
     }
 
-    // Find common suffix
     let commonSuffix = '';
     if (fileNames.length > 1) {
         const firstName = fileNames[0];
@@ -219,48 +205,36 @@ function generateAccountAliases(fileIndices: OptimizedFileIndex[]): Record<strin
         commonSuffix = firstName.substring(firstName.length - suffixLen);
     }
 
-    // Find unique identifiers (account numbers or distinctive parts)
     const aliases: Record<string, string> = {};
     const uniqueAccounts = [...new Set(fileIndices.map(f => f.accountPrefix.replace('History_for_Account_', '')))];
 
     for (const account of uniqueAccounts) {
-        // Check if this account appears in multiple files - if so, it's probably a real account ID
         const filesForAccount = fileIndices.filter(f =>
             f.accountPrefix.replace('History_for_Account_', '') === account
         );
 
         if (filesForAccount.length === 1) {
-            // Single file for this account - try to generate meaningful alias from filename
             const fileName = filesForAccount[0].fileName;
-
-            // Remove common patterns from filename
             let cleaned = fileName;
 
-            // Remove common prefix if it's long enough
             if (commonPrefix.length > 5) {
                 cleaned = cleaned.substring(commonPrefix.length);
             }
-
-            // Remove common suffix if it's long enough
             if (commonSuffix.length > 3) {
                 cleaned = cleaned.substring(0, cleaned.length - commonSuffix.length);
             }
-
-            // Remove common patterns
             cleaned = cleaned
                 .replace(/History_for_Account_/gi, '')
                 .replace(/\.csv$/i, '')
                 .replace(/[-_ ]+/g, ' ')
                 .trim();
 
-            // If the cleaned name is meaningful (not just numbers or too short), use it
             if (cleaned.length > 2 && cleaned.length < 30) {
                 aliases[account] = cleaned;
             } else if (account.length > 0 && account.length < 20) {
                 aliases[account] = account;
             }
         } else {
-            // Multiple files for this account - use account identifier
             aliases[account] = account;
         }
     }
@@ -315,12 +289,22 @@ function matchesStringFilter(cellValue: string, filter: ColumnFilter): boolean {
 
 function matchesNumericFilter(cellValue: number, filter: ColumnFilter): boolean {
     const op = filter.operator as NumericOperator;
+
+    // Handle empty value - match all
+    if (!filter.value || filter.value.trim() === '') {
+        return true;
+    }
+
     const val = parseFloat(filter.value);
-    if (isNaN(val)) return true;
+
+    // If value can't be parsed, don't filter
+    if (isNaN(val)) {
+        return true;
+    }
 
     switch (op) {
-        case 'eq':  return cellValue === val;
-        case 'neq': return cellValue !== val;
+        case 'eq':  return Math.abs(cellValue - val) < 0.0001; // Use tolerance for floating point
+        case 'neq': return Math.abs(cellValue - val) >= 0.0001;
         case 'gt':  return cellValue > val;
         case 'gte': return cellValue >= val;
         case 'lt':  return cellValue < val;
@@ -350,11 +334,8 @@ function ColumnFilterInput({ columnKey, columnType, filter, onChange, isDark, al
 
     const handleOperatorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newOp = e.target.value as StringOperator | NumericOperator;
-        if (currentVal === '') {
-            onChange(columnKey, null);
-        } else {
-            onChange(columnKey, { operator: newOp, value: currentVal });
-        }
+        // Always save operator preference, even if value is empty
+        onChange(columnKey, { operator: newOp, value: currentVal });
     };
 
     const handleValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -372,26 +353,27 @@ function ColumnFilterInput({ columnKey, columnType, filter, onChange, isDark, al
     };
 
     const selectClass = isDark
-        ? "bg-slate-800 border border-white/10 text-gray-300 text-xs rounded-l-md px-1 py-1 focus:outline-none focus:border-blue-500 cursor-pointer hover:bg-slate-700 transition-colors"
-        : "bg-gray-100 border border-gray-300 text-gray-700 text-xs rounded-l-md px-1 py-1 focus:outline-none focus:border-blue-500 cursor-pointer hover:bg-gray-200 transition-colors";
+        ? "bg-slate-800 border border-white/10 text-gray-300 text-xs rounded-l-md px-1 py-1 focus:outline-none focus:border-blue-500 cursor-pointer hover:bg-slate-700 transition-colors flex-shrink-0"
+        : "bg-gray-100 border border-gray-300 text-gray-700 text-xs rounded-l-md px-1 py-1 focus:outline-none focus:border-blue-500 cursor-pointer hover:bg-gray-200 transition-colors flex-shrink-0";
 
     const inputClass = isDark
-        ? "bg-slate-800 border-y border-white/10 text-white text-xs px-2 py-1 w-full focus:outline-none focus:border-blue-500 min-w-0"
-        : "bg-gray-100 border-y border-gray-300 text-gray-900 text-xs px-2 py-1 w-full focus:outline-none focus:border-blue-500 min-w-0";
+        ? "bg-slate-800 border-y border-white/10 text-white text-xs px-2 py-1 focus:outline-none focus:border-blue-500 min-w-0 flex-1"
+        : "bg-gray-100 border-y border-gray-300 text-gray-900 text-xs px-2 py-1 focus:outline-none focus:border-blue-500 min-w-0 flex-1";
 
     const clearClass = isDark
-        ? "bg-slate-800 border border-white/10 border-l-0 text-gray-500 hover:text-red-400 rounded-r-md px-1 py-1 focus:outline-none transition-colors"
-        : "bg-gray-100 border border-gray-300 border-l-0 text-gray-400 hover:text-red-500 rounded-r-md px-1 py-1 focus:outline-none transition-colors";
+        ? "bg-slate-800 border border-white/10 border-l-0 text-gray-500 hover:text-red-400 rounded-r-md px-1 py-1 focus:outline-none transition-colors flex-shrink-0"
+        : "bg-gray-100 border border-gray-300 border-l-0 text-gray-400 hover:text-red-500 rounded-r-md px-1 py-1 focus:outline-none transition-colors flex-shrink-0";
 
-    const activeRingClass = filter
-        ? isDark
-            ? "ring-1 ring-blue-500 rounded-md"
-            : "ring-1 ring-blue-500 rounded-md"
+    // Now shows blue ring when operator is changed from default (even without value)
+    const isOperatorChanged = filter?.operator !== undefined && filter?.operator !== defaultOp;
+    const activeRingClass = (filter || isOperatorChanged)
+        ? "ring-1 ring-blue-500 rounded-md"
         : "";
 
     return (
         <div className={`flex items-center w-full ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'}`}>
-            <div className={`flex items-center min-w-0 max-w-full ${activeRingClass}`} style={{ minWidth: 0 }}>
+            <div className={`flex items-center min-w-0 max-w-full ${activeRingClass}`}>
+                {/* Operator dropdown */}
                 <select
                     value={currentOp}
                     onChange={handleOperatorChange}
@@ -404,6 +386,7 @@ function ColumnFilterInput({ columnKey, columnType, filter, onChange, isDark, al
                         </option>
                     ))}
                 </select>
+                {/* Value input */}
                 <input
                     ref={inputRef}
                     type={columnType === 'number' ? 'number' : 'text'}
@@ -411,8 +394,8 @@ function ColumnFilterInput({ columnKey, columnType, filter, onChange, isDark, al
                     onChange={handleValueChange}
                     placeholder={placeholder ?? (columnType === 'number' ? '0' : 'filter…')}
                     className={inputClass}
-                    style={{ width: '6rem' }}
                 />
+                {/* Clear button */}
                 <button
                     onClick={handleClear}
                     className={clearClass}
@@ -555,14 +538,13 @@ function AliasEditModal({ account, currentAlias, suggestedAlias, onSave, onClose
 interface AccountListItemProps {
     account: string;
     alias: string;
-    suggestedAlias: string;
     onEdit: () => void;
     isSelected: boolean;
     onToggle: () => void;
     isDark: boolean;
 }
 
-function AccountListItem({ account, alias, suggestedAlias, onEdit, isSelected, onToggle, isDark }: AccountListItemProps) {
+function AccountListItem({ account, alias, onEdit, isSelected, onToggle, isDark }: AccountListItemProps) {
     const displayName = alias || account;
 
     return (
@@ -581,6 +563,11 @@ function AccountListItem({ account, alias, suggestedAlias, onEdit, isSelected, o
                 : "text-gray-700 text-sm group-hover:text-gray-900 transition-colors flex-1"
             }>
                 #{displayName}
+                {alias && account !== alias && (
+                    <span className={cn("text-xs ml-1 opacity-60", isDark ? "text-gray-500" : "text-gray-400")}>
+                        ({account})
+                    </span>
+                )}
             </span>
             <button
                 onClick={(e) => {
@@ -618,29 +605,31 @@ function App() {
     const [editingAccount, setEditingAccount] = useState<string | null>(null);
     const [suggestedAliases, setSuggestedAliases] = useState<Record<string, string>>({});
 
-    // Compute suggested aliases when files change
+    // Computed suggested aliases
     const computedSuggestedAliases = useMemo(() => {
         return generateAccountAliases(fileIndices);
     }, [fileIndices]);
 
-    // Initialize/reset account aliases when files are loaded
+    // Get display name for account
+    const getAccountDisplayName = (account: string) => {
+        return accountAliases[account] || account;
+    };
+
+    // Initialize/reset account aliases
     const initializeAliases = useCallback((files: OptimizedFileIndex[]) => {
         const newSuggested = generateAccountAliases(files);
         setSuggestedAliases(newSuggested);
 
-        // Auto-assign suggested aliases for accounts that don't have one yet
         const newAliases: Record<string, string> = {};
         const uniqueAccounts = [...new Set(files.map(f => f.accountPrefix.replace('History_for_Account_', '')))];
 
         for (const account of uniqueAccounts) {
-            // Only auto-assign if all files have similar naming patterns (suggesting meaningful names)
             const filesForAccount = files.filter(f =>
                 f.accountPrefix.replace('History_for_Account_', '') === account
             );
 
             if (filesForAccount.length === 1) {
                 const suggested = newSuggested[account];
-                // Only auto-suggest if the name is different from the account ID
                 if (suggested && suggested !== account) {
                     newAliases[account] = suggested;
                 }
@@ -658,7 +647,7 @@ function App() {
         });
     }, []);
 
-    // Reset function - clears UI state but keeps data
+    // Reset function
     const handleReset = useCallback(() => {
         setSelectedAccounts([]);
         setSelectedTickers([]);
@@ -698,7 +687,7 @@ function App() {
             }
             return {
                 key,
-                direction: ['totalShares', 'averageBuyPrice', 'realizedPnL', 'unrealizedPnL'].includes(key) ? 'desc' : 'asc'
+                direction: ['totalShares', 'averageBuyPrice', 'realizedPnL'].includes(key) ? 'desc' : 'asc'
             };
         });
     };
@@ -754,11 +743,6 @@ function App() {
                 let aValue: any = a[sortConfig.key as keyof PositionState];
                 let bValue: any = b[sortConfig.key as keyof PositionState];
 
-                if (sortConfig.key === 'unrealizedPnL') {
-                    aValue = a.unrealizedPnL ?? 0;
-                    bValue = b.unrealizedPnL ?? 0;
-                }
-
                 if (typeof aValue === 'string') {
                     aValue = aValue.toLowerCase();
                     bValue = (bValue as string).toLowerCase();
@@ -774,12 +758,19 @@ function App() {
             positions = positions.filter(pos => {
                 for (const [key, filter] of Object.entries(columnFilters)) {
                     if (!filter.value) continue;
+
                     switch (key) {
                         case 'ticker':
                             if (!matchesStringFilter(pos.ticker, filter)) return false;
                             break;
                         case 'account':
                             if (!matchesStringFilter(pos.account, filter)) return false;
+                            break;
+                        case 'alias':
+                        {
+                            const alias = accountAliases[pos.account] || '';
+                            if (!matchesStringFilter(alias, filter) && !matchesStringFilter(pos.account, filter)) return false;
+                        }
                             break;
                         case 'status':
                             if (!matchesStringFilter(pos.isClosed ? 'closed' : 'active', filter)) return false;
@@ -802,7 +793,7 @@ function App() {
         }
 
         return positions;
-    }, [portfolio, selectedAccounts, selectedTickers, statusFilter, sortConfig, columnFilters, activeFilterCount]);
+    }, [portfolio, selectedAccounts, selectedTickers, statusFilter, sortConfig, columnFilters, activeFilterCount, accountAliases]);
 
     const totalFilteredPnL = useMemo(() => {
         return filteredPositions.reduce((sum, pos) => sum + pos.realizedPnL, 0);
@@ -812,12 +803,12 @@ function App() {
         return filteredPositions
             .map(pos => ({
                 name: `${pos.ticker}`,
-                account: pos.account,
+                account: getAccountDisplayName(pos.account),
                 'P&L': parseFloat(pos.realizedPnL.toFixed(2))
             }))
             .sort((a, b) => b['P&L'] - a['P&L'])
             .slice(0, 20);
-    }, [filteredPositions]);
+    }, [filteredPositions, getAccountDisplayName]);
 
     const stats = useMemo(() => {
         const activePositions = filteredPositions.filter(p => !p.isClosed).length;
@@ -828,12 +819,13 @@ function App() {
 
     const CustomTooltip = ({ active, payload }: any) => {
         if (active && payload && payload.length) {
+            const data = payload[0].payload;
             return (
                 <div className={isDark ? "bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 shadow-xl" : "bg-white border border-gray-300 rounded-lg px-4 py-3 shadow-xl"}>
-                    <p className={isDark ? "text-white font-semibold text-sm" : "text-gray-900 font-semibold text-sm"}>{payload[0].payload.name}</p>
-                    <p className={isDark ? "text-gray-400 text-xs mb-1" : "text-gray-600 text-xs mb-1"}>#{payload[0].payload.account}</p>
-                    <p className={`text-lg font-bold ${payload[0].value >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        ${payload[0].value.toFixed(2)}
+                    <p className={isDark ? "text-white font-semibold text-sm" : "text-gray-900 font-semibold text-sm"}>{data.name}</p>
+                    <p className={isDark ? "text-gray-400 text-xs mb-1" : "text-gray-600 text-xs mb-1"}>#{data.account}</p>
+                    <p className={`text-lg font-bold ${data['P&L'] >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        ${data['P&L'].toFixed(2)}
                     </p>
                 </div>
             );
@@ -860,11 +852,6 @@ function App() {
         ? "px-3 py-2 bg-slate-900/70 border-b border-white/5"
         : "px-3 py-2 bg-gray-50 border-b border-gray-200";
 
-    // Get display name for account (alias or original)
-    const getAccountDisplayName = (account: string) => {
-        return accountAliases[account] || account;
-    };
-
     return (
         <div className={isDark ? "min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900" : "min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100"}>
             {/* Header */}
@@ -885,7 +872,6 @@ function App() {
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            {/* Refresh Button */}
                             {fileIndices.length > 0 && (
                                 <button
                                     onClick={handleReset}
@@ -1013,7 +999,6 @@ function App() {
                                                 key={acc}
                                                 account={acc}
                                                 alias={accountAliases[acc] || ''}
-                                                suggestedAlias={computedSuggestedAliases[acc] || ''}
                                                 onEdit={() => setEditingAccount(acc)}
                                                 isSelected={selectedAccounts.includes(acc)}
                                                 onToggle={() => setSelectedAccounts(prev =>
@@ -1170,13 +1155,16 @@ function App() {
                                             <th onClick={() => handleSort('ticker')} className={`text-left px-6 py-4 ${thBase}`}>
                                                 <div className="flex items-center gap-1">Ticker <SortIcon colKey="ticker" /></div>
                                             </th>
-                                            <th onClick={() => handleSort('account')} className={`text-left px-6 py-4 ${thBase}`}>
+                                            <th onClick={() => handleSort('account')} className={`text-left px-6 py-4 hidden sm:table-cell ${thBase}`}>
                                                 <div className="flex items-center gap-1">Account <SortIcon colKey="account" /></div>
+                                            </th>
+                                            <th onClick={() => handleSort('alias')} className={`text-left px-6 py-4 hidden md:table-cell ${thBase}`}>
+                                                <div className="flex items-center gap-1">Alias <SortIcon colKey="alias" /></div>
                                             </th>
                                             <th onClick={() => handleSort('totalShares')} className={`text-right px-6 py-4 ${thBase}`}>
                                                 <div className="flex items-center justify-end gap-1">Shares <SortIcon colKey="totalShares" /></div>
                                             </th>
-                                            <th onClick={() => handleSort('averageBuyPrice')} className={`text-right px-6 py-4 hidden sm:table-cell ${thBase}`}>
+                                            <th onClick={() => handleSort('averageBuyPrice')} className={`text-right px-6 py-4 hidden lg:table-cell ${thBase}`}>
                                                 <div className="flex items-center justify-end gap-1">Avg Buy <SortIcon colKey="averageBuyPrice" /></div>
                                             </th>
                                             <th className={isDark ? "text-center px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell" : "text-center px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider hidden md:table-cell"}>
@@ -1198,7 +1186,7 @@ function App() {
                                                     placeholder="e.g. AAPL"
                                                 />
                                             </td>
-                                            <td className={`${filterRowCell} text-left`}>
+                                            <td className={`${filterRowCell} text-left hidden sm:table-cell`}>
                                                 <ColumnFilterInput
                                                     columnKey="account"
                                                     columnType="string"
@@ -1207,6 +1195,17 @@ function App() {
                                                     isDark={isDark}
                                                     align="left"
                                                     placeholder="account…"
+                                                />
+                                            </td>
+                                            <td className={`${filterRowCell} text-left hidden md:table-cell`}>
+                                                <ColumnFilterInput
+                                                    columnKey="alias"
+                                                    columnType="string"
+                                                    filter={columnFilters['alias']}
+                                                    onChange={handleColumnFilterChange}
+                                                    isDark={isDark}
+                                                    align="left"
+                                                    placeholder="alias…"
                                                 />
                                             </td>
                                             <td className={`${filterRowCell} text-right`}>
@@ -1220,7 +1219,7 @@ function App() {
                                                     placeholder="qty"
                                                 />
                                             </td>
-                                            <td className={`${filterRowCell} text-right hidden sm:table-cell`}>
+                                            <td className={`${filterRowCell} text-right hidden lg:table-cell`}>
                                                 <ColumnFilterInput
                                                     columnKey="averageBuyPrice"
                                                     columnType="number"
@@ -1264,13 +1263,21 @@ function App() {
                                                 <td className="px-6 py-4">
                                                     <div className={isDark ? "font-bold text-white text-lg" : "font-bold text-gray-900 text-lg"}>{pos.ticker}</div>
                                                 </td>
-                                                <td className="px-6 py-4">
-                                                    <div className={isDark ? "text-gray-400 font-mono text-sm" : "text-gray-600 font-mono text-sm"}>#{getAccountDisplayName(pos.account)}</div>
+                                                <td className="px-6 py-4 hidden sm:table-cell">
+                                                    <div className={isDark ? "text-gray-400 font-mono text-sm" : "text-gray-600 font-mono text-sm"}>#{pos.account}</div>
+                                                </td>
+                                                <td className="px-6 py-4 hidden md:table-cell">
+                                                    <div className={cn(
+                                                        "font-medium text-sm",
+                                                        isDark ? "text-blue-400" : "text-blue-600"
+                                                    )}>
+                                                        {accountAliases[pos.account] || '—'}
+                                                    </div>
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
                                                     <div className={isDark ? "text-white font-mono" : "text-gray-900 font-mono"}>{pos.totalShares.toFixed(4)}</div>
                                                 </td>
-                                                <td className="px-6 py-4 text-right hidden sm:table-cell">
+                                                <td className="px-6 py-4 text-right hidden lg:table-cell">
                                                     <div className={isDark ? "text-gray-300 font-mono" : "text-gray-700 font-mono"}>${pos.averageBuyPrice.toFixed(2)}</div>
                                                 </td>
                                                 <td className="px-6 py-4 text-center hidden md:table-cell">
