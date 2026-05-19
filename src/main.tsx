@@ -168,7 +168,6 @@ function App() {
     const [isLoading, setIsLoading] = useState(false);
     const [theme, setTheme] = useState<'dark' | 'light'>('dark');
     const [isFilesExpanded, setIsFilesExpanded] = useState(false);
-    const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
     const handleMultipleFilesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,22 +205,6 @@ function App() {
         });
     };
 
-    const handlePriceUpdate = (ticker: string, price: string) => {
-        const numPrice = parseFloat(price);
-        if (!isNaN(numPrice) && numPrice > 0) {
-            setCurrentPrices(prev => ({
-                ...prev,
-                [ticker]: numPrice
-            }));
-        } else {
-            setCurrentPrices(prev => {
-                const newPrices = { ...prev };
-                delete newPrices[ticker];
-                return newPrices;
-            });
-        }
-    };
-
     const portfolio = useMemo(() => reducePortfolioOptimized(fileIndices), [fileIndices]);
 
     const uniqueAccounts = useMemo(() => {
@@ -239,21 +222,7 @@ function App() {
     }, [fileIndices]);
 
     const filteredPositions = useMemo(() => {
-        let positions = Object.values(portfolio.positions).map(pos => {
-            const enrichedPos = { ...pos };
-
-            // Calculate unrealized P&L for active positions
-            if (!pos.isClosed && pos.totalShares > 0) {
-                const currentPrice = currentPrices[pos.ticker];
-                if (currentPrice) {
-                    enrichedPos.currentPrice = currentPrice;
-                    const currentValue = pos.totalShares * currentPrice;
-                    enrichedPos.unrealizedPnL = currentValue - pos.totalInvested;
-                }
-            }
-
-            return enrichedPos;
-        }).filter(pos => {
+        let positions = Object.values(portfolio.positions).filter(pos => {
             const matchesAccount = selectedAccounts.length === 0 || selectedAccounts.includes(pos.account);
             const matchesTicker = selectedTickers.length === 0 || selectedTickers.includes(pos.ticker);
             const matchesStatus =
@@ -291,7 +260,7 @@ function App() {
         }
 
         return positions;
-    }, [portfolio, selectedAccounts, selectedTickers, statusFilter, currentPrices, sortConfig]);
+    }, [portfolio, selectedAccounts, selectedTickers, statusFilter, sortConfig]);
 
     const totalFilteredPnL = useMemo(() => {
         return filteredPositions.reduce((sum, pos) => sum + pos.realizedPnL, 0);
@@ -523,22 +492,7 @@ function App() {
                                     </div>
                                 </div>
 
-                                {/* Status Filter */}
-                                <div className={isDark ? "bg-gradient-to-br from-slate-900/90 to-slate-800/90 backdrop-blur-sm border border-white/10 rounded-2xl p-5 shadow-xl" : "bg-white border border-gray-300 rounded-2xl p-5 shadow-lg"}>
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <Filter className={isDark ? "w-4 h-4 text-green-400" : "w-4 h-4 text-green-600"} />
-                                        <h3 className={isDark ? "text-white font-semibold" : "text-gray-900 font-semibold"}>Status</h3>
-                                    </div>
-                                    <select
-                                        value={statusFilter}
-                                        onChange={(e) => setStatusFilter(e.target.value as any)}
-                                        className={isDark ? "w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent" : "w-full bg-white border border-gray-300 text-gray-900 rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"}
-                                    >
-                                        <option value="ALL">All Positions</option>
-                                        <option value="ACTIVE">Active Only</option>
-                                        <option value="CLOSED">Closed Only</option>
-                                    </select>
-                                </div>
+
                             </div>
                         </aside>
 
@@ -624,8 +578,45 @@ function App() {
                             {/* Table */}
                             <div className={isDark ? "bg-gradient-to-br from-slate-900/90 to-slate-800/90 backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden shadow-xl" : "bg-white border border-gray-300 rounded-2xl overflow-hidden shadow-lg"}>
                                 <div className={isDark ? "p-6 border-b border-white/10" : "p-6 border-b border-gray-200"}>
-                                    <h3 className={isDark ? "text-white text-xl font-semibold" : "text-gray-900 text-xl font-semibold"}>Position Details</h3>
-                                    <p className={isDark ? "text-gray-400 text-sm mt-1" : "text-gray-600 text-sm mt-1"}>{filteredPositions.length} positions</p>
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <h3 className={isDark ? "text-white text-xl font-semibold" : "text-gray-900 text-xl font-semibold"}>Position Details</h3>
+                                            <p className={isDark ? "text-gray-400 text-sm mt-1" : "text-gray-600 text-sm mt-1"}>{filteredPositions.length} positions</p>
+                                        </div>
+                                    </div>
+                                    {/* Status Tabs */}
+                                    <div className="flex gap-2 mt-4">
+                                        <button
+                                            onClick={() => setStatusFilter('ACTIVE')}
+                                            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                                                statusFilter === 'ACTIVE'
+                                                    ? (isDark ? 'bg-green-500/20 text-green-400 border-2 border-green-500' : 'bg-green-200 text-green-800 border-2 border-green-500')
+                                                    : (isDark ? 'bg-white/5 text-gray-400 hover:bg-white/10 border-2 border-transparent' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border-2 border-transparent')
+                                            }`}
+                                        >
+                                            Active Only
+                                        </button>
+                                        <button
+                                            onClick={() => setStatusFilter('CLOSED')}
+                                            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                                                statusFilter === 'CLOSED'
+                                                    ? (isDark ? 'bg-purple-500/20 text-purple-400 border-2 border-purple-500' : 'bg-purple-200 text-purple-800 border-2 border-purple-500')
+                                                    : (isDark ? 'bg-white/5 text-gray-400 hover:bg-white/10 border-2 border-transparent' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border-2 border-transparent')
+                                            }`}
+                                        >
+                                            Closed Only
+                                        </button>
+                                        <button
+                                            onClick={() => setStatusFilter('ALL')}
+                                            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                                                statusFilter === 'ALL'
+                                                    ? (isDark ? 'bg-blue-500/20 text-blue-400 border-2 border-blue-500' : 'bg-blue-200 text-blue-800 border-2 border-blue-500')
+                                                    : (isDark ? 'bg-white/5 text-gray-400 hover:bg-white/10 border-2 border-transparent' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border-2 border-transparent')
+                                            }`}
+                                        >
+                                            All Positions
+                                        </button>
+                                    </div>
                                 </div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full">
@@ -687,19 +678,6 @@ function App() {
                                                 Status
                                             </th>
                                             <th
-                                                onClick={() => handleSort('unrealizedPnL')}
-                                                className={isDark ? "text-right px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell cursor-pointer hover:bg-white/5 transition-colors" : "text-right px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider hidden lg:table-cell cursor-pointer hover:bg-gray-200 transition-colors"}
-                                            >
-                                                <div className="flex items-center justify-end gap-1">
-                                                    Unrealized
-                                                    {sortConfig?.key === 'unrealizedPnL' ? (
-                                                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
-                                                    ) : (
-                                                        <ArrowUpDown className="w-3 h-3 opacity-30" />
-                                                    )}
-                                                </div>
-                                            </th>
-                                            <th
                                                 onClick={() => handleSort('realizedPnL')}
                                                 className={isDark ? "text-right px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-white/5 transition-colors" : "text-right px-6 py-4 text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-200 transition-colors"}
                                             >
@@ -722,15 +700,6 @@ function App() {
                                             >
                                                 <td className="px-6 py-4">
                                                     <div className={isDark ? "font-bold text-white text-lg" : "font-bold text-gray-900 text-lg"}>{pos.ticker}</div>
-                                                    {!pos.isClosed && pos.totalShares > 0 && !currentPrices[pos.ticker] && (
-                                                        <input
-                                                            type="number"
-                                                            step="0.01"
-                                                            placeholder="Current $"
-                                                            onChange={(e) => handlePriceUpdate(pos.ticker, e.target.value)}
-                                                            className={isDark ? "mt-1 w-24 px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded focus:ring-1 focus:ring-blue-500 text-white" : "mt-1 w-24 px-2 py-1 text-xs bg-white border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 text-gray-900"}
-                                                        />
-                                                    )}
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <div className={isDark ? "text-gray-400 font-mono text-sm" : "text-gray-600 font-mono text-sm"}>#{pos.account}</div>
@@ -740,11 +709,6 @@ function App() {
                                                 </td>
                                                 <td className="px-6 py-4 text-right hidden sm:table-cell">
                                                     <div className={isDark ? "text-gray-300 font-mono" : "text-gray-700 font-mono"}>${pos.averageBuyPrice.toFixed(2)}</div>
-                                                    {!pos.isClosed && pos.currentPrice && (
-                                                        <div className={isDark ? "text-blue-400 text-xs mt-1" : "text-blue-600 text-xs mt-1"}>
-                                                            Now: ${pos.currentPrice.toFixed(2)}
-                                                        </div>
-                                                    )}
                                                 </td>
                                                 <td className="px-6 py-4 text-center hidden md:table-cell">
                                                         <span
@@ -756,21 +720,6 @@ function App() {
                                                         >
                                                             {pos.isClosed ? 'CLOSED' : 'ACTIVE'}
                                                         </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-right hidden lg:table-cell">
-                                                    {!pos.isClosed && pos.unrealizedPnL !== undefined ? (
-                                                        <div
-                                                            className={`font-bold text-lg font-mono ${
-                                                                pos.unrealizedPnL >= 0 ? (isDark ? 'text-green-400' : 'text-green-600') : (isDark ? 'text-red-400' : 'text-red-600')
-                                                            }`}
-                                                        >
-                                                            ${pos.unrealizedPnL.toFixed(2)}
-                                                        </div>
-                                                    ) : (
-                                                        <div className={isDark ? "text-gray-500 text-sm" : "text-gray-400 text-sm"}>
-                                                            {pos.isClosed ? '—' : 'Set price'}
-                                                        </div>
-                                                    )}
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
                                                     <div
@@ -797,15 +746,23 @@ function App() {
                 )}
 
                 {fileIndices.length === 0 && !isLoading && (
-                    <div className="text-center py-20">
-                        <div className="bg-gradient-to-br from-blue-500 to-purple-600 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 cursor-pointer">
+                    <label className="block text-center py-20 cursor-pointer">
+                        <input
+                            type="file"
+                            accept=".csv"
+                            multiple
+                            onChange={handleMultipleFilesUpload}
+                            className="hidden"
+                            disabled={isLoading}
+                        />
+                        <div className="bg-gradient-to-br from-blue-500 to-purple-600 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 hover:scale-110 transition-transform">
                             <Upload className="w-10 h-10 text-white" />
                         </div>
                         <h2 className={isDark ? "text-2xl font-bold text-white mb-2" : "text-2xl font-bold text-gray-900 mb-2"}>Get Started</h2>
                         <p className={isDark ? "text-gray-400 max-w-md mx-auto" : "text-gray-600 max-w-md mx-auto"}>
                             Upload your Fidelity account history CSV files to analyze your portfolio performance and track P&L across all positions.
                         </p>
-                    </div>
+                    </label>
                 )}
             </div>
         </div>
