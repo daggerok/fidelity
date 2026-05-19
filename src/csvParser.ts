@@ -21,8 +21,8 @@ export function parseFidelityCSVOptimized(file: File): Promise<OptimizedFileInde
                         return;
                     }
 
-                    const latestDate = new Date(validRows[0]['Run Date']);
-                    const earliestDate = new Date(validRows[validRows.length - 1]['Run Date']);
+                    const latestDate = new Date((validRows[0] as any)['Run Date']);
+                    const earliestDate = new Date((validRows[validRows.length - 1] as any)['Run Date']);
 
                     resolve({
                         fileName: file.name,
@@ -32,7 +32,7 @@ export function parseFidelityCSVOptimized(file: File): Promise<OptimizedFileInde
                         rawData: validRows
                     });
                 },
-                error: (error) => reject(error)
+                error: (error: any) => reject(error)
             });
         }).catch(reject);
     });
